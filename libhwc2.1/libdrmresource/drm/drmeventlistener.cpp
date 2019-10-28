@@ -19,6 +19,7 @@
 #include "drmeventlistener.h"
 
 #include <assert.h>
+#include <bits/epoll_event.h>
 #include <drm/samsung_drm.h>
 #include <errno.h>
 #include <hardware/hardware.h>
