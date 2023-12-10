@@ -161,6 +161,7 @@ include $(CLEAR_VARS)
 
 LOCAL_HEADER_LIBRARIES := libhardware_legacy_headers libbinder_headers google_hal_headers
 LOCAL_HEADER_LIBRARIES += libgralloc_headers
+LOCAL_HEADER_LIBRARIES += generated_kernel_headers
 LOCAL_SHARED_LIBRARIES := liblog libcutils libutils libbinder libexynosdisplay libacryl \
 	android.hardware.graphics.composer@2.4 \
 	android.hardware.graphics.allocator@2.0 \
