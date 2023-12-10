@@ -55,6 +55,7 @@ LOCAL_HEADER_LIBRARIES := \
 	android.hardware.graphics.composer3-command-buffer \
 	google_hal_headers \
 	libgralloc_headers
+LOCAL_HEADER_LIBRARIES += generated_kernel_headers
 
 LOCAL_C_INCLUDES := \
 	$(TOP)/hardware/google/graphics/common/include \
