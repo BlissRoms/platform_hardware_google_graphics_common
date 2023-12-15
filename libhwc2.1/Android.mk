@@ -22,7 +22,7 @@ LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_SHARED_LIBRARIES := libcutils libdrm liblog libutils libhardware
-LOCAL_HEADER_LIBRARIES += generated_kernel_headers
+LOCAL_HEADER_LIBRARIES += device_kernel_headers
 
 LOCAL_PROPRIETARY_MODULE := true
 
@@ -80,7 +80,7 @@ LOCAL_HEADER_LIBRARIES := libhardware_legacy_headers \
 			  libbinder_headers google_hal_headers \
 			  libgralloc_headers \
 			  android.hardware.graphics.common-V3-ndk_headers
-LOCAL_HEADER_LIBRARIES += generated_kernel_headers
+LOCAL_HEADER_LIBRARIES += device_kernel_headers
 
 LOCAL_STATIC_LIBRARIES += libVendorVideoApi
 LOCAL_STATIC_LIBRARIES += libjsoncpp
@@ -161,7 +161,7 @@ include $(CLEAR_VARS)
 
 LOCAL_HEADER_LIBRARIES := libhardware_legacy_headers libbinder_headers google_hal_headers
 LOCAL_HEADER_LIBRARIES += libgralloc_headers
-LOCAL_HEADER_LIBRARIES += generated_kernel_headers
+LOCAL_HEADER_LIBRARIES += device_kernel_headers
 LOCAL_SHARED_LIBRARIES := liblog libcutils libutils libbinder libexynosdisplay libacryl \
 	android.hardware.graphics.composer@2.4 \
 	android.hardware.graphics.allocator@2.0 \
@@ -238,7 +238,7 @@ LOCAL_SHARED_LIBRARIES += android.hardware.graphics.composer3-V2-ndk \
 LOCAL_PROPRIETARY_MODULE := true
 LOCAL_HEADER_LIBRARIES := libhardware_legacy_headers libbinder_headers google_hal_headers
 LOCAL_HEADER_LIBRARIES += libgralloc_headers
-LOCAL_HEADER_LIBRARIES += generated_kernel_headers
+LOCAL_HEADER_LIBRARIES += device_kernel_headers
 
 LOCAL_CFLAGS := -DHLOG_CODE=0
 LOCAL_CFLAGS += -DLOG_TAG=\"hwc-2\"
