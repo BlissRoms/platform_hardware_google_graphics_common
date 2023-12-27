@@ -46,6 +46,14 @@ public:
     virtual void handleHistogramEvent(uint32_t crtc_id, void *) = 0;
 };
 
+class DrmHistogramChannelEventHandler {
+   public:
+    DrmHistogramChannelEventHandler() {}
+    virtual ~DrmHistogramChannelEventHandler() {}
+
+    virtual void handleHistogramChannelEvent(void *) = 0;
+};
+
 class DrmTUIEventHandler {
  public:
   DrmTUIEventHandler() {
@@ -87,6 +95,8 @@ class DrmEventListener : public Worker {
   void UnRegisterHotplugHandler(DrmEventHandler *handler);
   void RegisterHistogramHandler(DrmHistogramEventHandler *handler);
   void UnRegisterHistogramHandler(DrmHistogramEventHandler *handler);
+  void RegisterHistogramChannelHandler(DrmHistogramChannelEventHandler *handler);
+  void UnRegisterHistogramChannelHandler(DrmHistogramChannelEventHandler *handler);
   void RegisterTUIHandler(DrmTUIEventHandler *handler);
   void UnRegisterTUIHandler(DrmTUIEventHandler *handler);
   void RegisterPanelIdleHandler(DrmPanelIdleEventHandler *handler);
@@ -115,6 +125,7 @@ class DrmEventListener : public Worker {
   DrmDevice *drm_;
   std::unique_ptr<DrmEventHandler> hotplug_handler_;
   std::unique_ptr<DrmHistogramEventHandler> histogram_handler_;
+  std::unique_ptr<DrmHistogramChannelEventHandler> histogram_channel_handler_;
   std::unique_ptr<DrmTUIEventHandler> tui_handler_;
   std::unique_ptr<DrmPanelIdleEventHandler> panel_idle_handler_;
   std::mutex mutex_;

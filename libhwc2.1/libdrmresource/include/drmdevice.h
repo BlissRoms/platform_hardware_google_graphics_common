@@ -84,6 +84,9 @@ class DrmDevice {
   void RegisterHistogramHandler(DrmHistogramEventHandler *handler) {
       event_listener_.RegisterHistogramHandler(handler);
   }
+  void RegisterHistogramChannelHandler(DrmHistogramChannelEventHandler *handler) {
+      event_listener_.RegisterHistogramChannelHandler(handler);
+  }
 
   int CallVendorIoctl(unsigned long request, void *arg);
 

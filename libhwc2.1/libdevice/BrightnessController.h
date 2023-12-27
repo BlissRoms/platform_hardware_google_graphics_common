@@ -40,6 +40,11 @@
 class BrightnessController {
 public:
     using HdrLayerState = displaycolor::HdrLayerState;
+    using DisplayBrightnessRange = displaycolor::DisplayBrightnessRange;
+    using BrightnessRangeMap = displaycolor::BrightnessRangeMap;
+    using IBrightnessTable = displaycolor::IBrightnessTable;
+    using BrightnessMode = displaycolor::BrightnessMode;
+    using ColorRenderIntent = displaycolor::hwc::RenderIntent;
 
     class DimmingMsgHandler : public virtual ::android::MessageHandler {
     public:
@@ -64,8 +69,12 @@ public:
 
     int processEnhancedHbm(bool on);
     int processDisplayBrightness(float bl, const nsecs_t vsyncNs, bool waitPresent = false);
+    int ignoreBrightnessUpdateRequests(bool ignore);
+    int setBrightnessNits(float nits, const nsecs_t vsyncNs);
+    int setBrightnessDbv(uint32_t dbv, const nsecs_t vsyncNs);
     int processLocalHbm(bool on);
     int processDimBrightness(bool on);
+    int processOperationRate(int32_t hz);
     bool isDbmSupported() { return mDbmSupported; }
     int applyPendingChangeViaSysfs(const nsecs_t vsyncNs);
     bool validateLayerBrightness(float brightness);
@@ -86,6 +95,12 @@ public:
     void updateFrameStates(HdrLayerState hdrState, bool sdrDim);
 
     /**
+     * updateColorRenderIntent
+     *  - intent: color render intent
+     */
+    void updateColorRenderIntent(int32_t intent);
+
+    /**
      * Dim ratio to keep the sdr brightness unchange after an instant hbm on with peak brightness.
      */
     float getSdrDimRatioForInstantHbm();
@@ -96,11 +111,10 @@ public:
      * apply brightness change on drm path.
      * Note: only this path can hold the lock for a long time
      */
-    int prepareFrameCommit(ExynosDisplay& display,
-                           const DrmConnector& connector,
+    int prepareFrameCommit(ExynosDisplay& display, const DrmConnector& connector,
                            ExynosDisplayDrmInterface::DrmModeAtomicReq& drmReq,
-                           const bool mixedComposition,
-                           bool& ghbmSync, bool& lhbmSync, bool& blSync);
+                           const bool mixedComposition, bool& ghbmSync, bool& lhbmSync,
+                           bool& blSync, bool& opRateSync);
 
     bool isGhbmSupported() { return mGhbmSupported; }
     bool isLhbmSupported() { return mLhbmSupported; }
@@ -136,6 +150,11 @@ public:
         return mHdrLayerState.get();
     }
 
+    uint32_t getOperationRate() {
+        std::lock_guard<std::recursive_mutex> lock(mBrightnessMutex);
+        return mOperationRate.get();
+    }
+
     bool isSupported() {
         // valid mMaxBrightness means both brightness and max_brightness sysfs exist
         return mMaxBrightness > 0;
@@ -162,24 +181,10 @@ public:
         return nodeName.c_str();
     }
 
-    struct BrightnessTable {
-        float mBriStart;
-        float mBriEnd;
-        uint32_t mBklStart;
-        uint32_t mBklEnd;
-        uint32_t mNitsStart;
-        uint32_t mNitsEnd;
-        BrightnessTable() {}
-        BrightnessTable(const brightness_attribute &attr)
-              : mBriStart(static_cast<float>(attr.percentage.min) / 100.0f),
-                mBriEnd(static_cast<float>(attr.percentage.max) / 100.0f),
-                mBklStart(attr.level.min),
-                mBklEnd(attr.level.max),
-                mNitsStart(attr.nits.min),
-                mNitsEnd(attr.nits.max) {}
-    };
-
-    const BrightnessTable *getBrightnessTable() { return mBrightnessTable; }
+    void updateBrightnessTable(const IBrightnessTable* table);
+    const BrightnessRangeMap& getBrightnessRanges() const {
+        return mKernelBrightnessTable.GetBrightnessRangeMap();
+    }
 
     /*
      * WARNING: This enum is parsed by Battery Historian. Add new values, but
@@ -240,6 +245,104 @@ public:
             "/sys/devices/platform/exynos-drm/%s-panel/refresh_rate";
 
 private:
+    // This is a backup implementation of brightness table. It would be applied only when the system
+    // failed to initiate libdisplaycolor. The complete implementation is class
+    // DisplayData::BrightnessTable
+    class LinearBrightnessTable : public IBrightnessTable {
+    public:
+        LinearBrightnessTable() : mIsValid(false) {}
+        void Init(const struct brightness_capability* cap);
+        bool IsValid() const { return mIsValid; }
+        const BrightnessRangeMap& GetBrightnessRangeMap() const { return mBrightnessRanges; }
+
+        /* IBrightnessTable functions */
+        std::optional<std::reference_wrapper<const DisplayBrightnessRange>> GetBrightnessRange(
+                BrightnessMode bm) const override {
+            if (mBrightnessRanges.count(bm) == 0) {
+                return std::nullopt;
+            }
+            return mBrightnessRanges.at(bm);
+        }
+        std::optional<float> BrightnessToNits(float brightness, BrightnessMode& bm) const override;
+        std::optional<float> NitsToBrightness(float nits) const override;
+        std::optional<float> DbvToBrightness(uint32_t dbv) const override;
+        std::optional<uint32_t> NitsToDbv(BrightnessMode bm, float nits) const override;
+        std::optional<float> DbvToNits(BrightnessMode bm, uint32_t dbv) const override;
+
+        BrightnessMode GetBrightnessMode(float brightness) const {
+            for (const auto& [mode, range] : mBrightnessRanges) {
+                if (((!range.brightness_min_exclusive && brightness == range.brightness_min) ||
+                     brightness > range.brightness_min) &&
+                    brightness <= range.brightness_max) {
+                    return mode;
+                }
+            }
+            // return BM_MAX if there is no matching range
+            return BrightnessMode::BM_MAX;
+        }
+
+        BrightnessMode GetBrightnessModeForNits(float nits) const {
+            for (const auto& [mode, range] : mBrightnessRanges) {
+                if (nits >= range.nits_min && nits <= range.nits_max) {
+                    return mode;
+                }
+            }
+            // return BM_INVALID if there is no matching range
+            return BrightnessMode::BM_INVALID;
+        }
+
+        BrightnessMode getBrightnessModeForDbv(uint32_t dbv) const {
+            for (const auto& [mode, range] : mBrightnessRanges) {
+                if (dbv >= range.dbv_min && dbv <= range.dbv_max) {
+                    return mode;
+                }
+            }
+            // return BM_INVALID if there is no matching range
+            return BrightnessMode::BM_INVALID;
+        }
+
+    private:
+        static void setBrightnessRangeFromAttribute(const struct brightness_attribute& attr,
+                                                    displaycolor::DisplayBrightnessRange& range) {
+            range.nits_min = attr.nits.min;
+            range.nits_max = attr.nits.max;
+            range.dbv_min = attr.level.min;
+            range.dbv_max = attr.level.max;
+            range.brightness_min_exclusive = false;
+            range.brightness_min = static_cast<float>(attr.percentage.min) / 100.0f;
+            range.brightness_max = static_cast<float>(attr.percentage.max) / 100.0f;
+        }
+        /**
+         * Implement linear interpolation/extrapolation formula:
+         *  y = y1+(y2-y1)*(x-x1)/(x2-x1)
+         * Return NAN for following cases:
+         *  - Attempt to do extrapolation when x1==x2
+         *  - Undefined output when (x2 == x1) and (y2 != y1)
+         */
+        static inline float LinearInterpolation(float x, float x1, float x2, float y1, float y2) {
+            if (x2 == x1) {
+                if (x != x1) {
+                    ALOGE("%s: attempt to do extrapolation when x1==x2", __func__);
+                    return NAN;
+                }
+                if (y2 == y1) {
+                    // This is considered a normal case. (interpolation between a single point)
+                    return y1;
+                } else {
+                    // The output is undefined when (y1!=y2)
+                    ALOGE("%s: undefined output when (x2 == x1) and (y2 != y1)", __func__);
+                    return NAN;
+                }
+            }
+            float t = (x - x1) / (x2 - x1);
+            return y1 + (y2 - y1) * t;
+        }
+        inline bool SupportHBM() const {
+            return mBrightnessRanges.count(BrightnessMode::BM_HBM) > 0;
+        }
+        bool mIsValid;
+        BrightnessRangeMap mBrightnessRanges;
+    };
     // sync brightness change for mixed composition when there is more than 50% luminance change.
     // The percentage is calculated as:
     //        (big_lumi - small_lumi) / small_lumi
@@ -255,6 +358,10 @@ private:
             "vendor.display.%d.brightness.dimming.usage";
     static constexpr const char* kDimmingHbmTimePropName =
             "vendor.display.%d.brightness.dimming.hbm_time";
+    static constexpr const char* kGlobalAclModeFileNode =
+            "/sys/class/backlight/panel%d-backlight/acl_mode";
+    static constexpr const char* kAclModeDefaultPropName =
+            "vendor.display.%d.brightness.acl.default";
 
     int queryBrightness(float brightness, bool* ghbm = nullptr, uint32_t* level = nullptr,
                         float *nits = nullptr);
@@ -264,19 +371,22 @@ private:
     void initDimmingUsage();
     int applyBrightnessViaSysfs(uint32_t level);
     int applyCabcModeViaSysfs(uint8_t mode);
-    int updateStates() REQUIRES(mBrightnessMutex);
+    int updateStates(); // REQUIRES(mBrightnessMutex)
     void dimmingThread();
     void processDimmingOff();
+    int updateAclMode();
 
     void parseHbmModeEnums(const DrmProperty& property);
 
-    void printBrightnessStates(const char* path)  REQUIRES(mBrightnessMutex);
+    void printBrightnessStates(const char* path); // REQUIRES(mBrightnessMutex)
 
     bool mLhbmSupported = false;
     bool mGhbmSupported = false;
     bool mDbmSupported = false;
     bool mBrightnessIntfSupported = false;
-    BrightnessTable mBrightnessTable[toUnderlying(BrightnessRange::MAX)];
+    LinearBrightnessTable mKernelBrightnessTable;
+    // External object from libdisplaycolor
+    const IBrightnessTable* mBrightnessTable = nullptr;
 
     int32_t mPanelIndex;
     DrmEnumParser::MapHal2DrmEnum mHbmModeEnums;
@@ -284,24 +394,29 @@ private:
     // brightness state
     std::recursive_mutex mBrightnessMutex;
     // requests
-    CtrlValue<bool> mEnhanceHbmReq GUARDED_BY(mBrightnessMutex);
-    CtrlValue<bool> mLhbmReq GUARDED_BY(mBrightnessMutex);
-    CtrlValue<float> mBrightnessFloatReq GUARDED_BY(mBrightnessMutex);
-    CtrlValue<bool> mInstantHbmReq GUARDED_BY(mBrightnessMutex);
+    CtrlValue<bool> mEnhanceHbmReq;       // GUARDED_BY(mBrightnessMutex)
+    CtrlValue<bool> mLhbmReq;             // GUARDED_BY(mBrightnessMutex)
+    CtrlValue<float> mBrightnessFloatReq; // GUARDED_BY(mBrightnessMutex)
+    CtrlValue<bool> mInstantHbmReq;       // GUARDED_BY(mBrightnessMutex)
     // states to drm after updateStates call
-    CtrlValue<uint32_t> mBrightnessLevel GUARDED_BY(mBrightnessMutex);
-    CtrlValue<HbmMode> mGhbm GUARDED_BY(mBrightnessMutex);
-    CtrlValue<bool> mDimming GUARDED_BY(mBrightnessMutex);
-    CtrlValue<bool> mLhbm GUARDED_BY(mBrightnessMutex);
-    CtrlValue<bool> mSdrDim GUARDED_BY(mBrightnessMutex);
-    CtrlValue<bool> mPrevSdrDim GUARDED_BY(mBrightnessMutex);
-    CtrlValue<bool> mDimBrightnessReq GUARDED_BY(mBrightnessMutex);
+    CtrlValue<uint32_t> mBrightnessLevel; // GUARDED_BY(mBrightnessMutex)
+    CtrlValue<HbmMode> mGhbm;             // GUARDED_BY(mBrightnessMutex)
+    CtrlValue<bool> mDimming;             // GUARDED_BY(mBrightnessMutex)
+    CtrlValue<bool> mLhbm;                // GUARDED_BY(mBrightnessMutex)
+    CtrlValue<bool> mSdrDim;              // GUARDED_BY(mBrightnessMutex)
+    CtrlValue<bool> mPrevSdrDim;          // GUARDED_BY(mBrightnessMutex)
+    CtrlValue<bool> mDimBrightnessReq;    // GUARDED_BY(mBrightnessMutex)
+    CtrlValue<uint32_t> mOperationRate;   // GUARDED_BY(mBrightnessMutex)
 
     // Indicating if the last LHBM on has changed the brightness level
     bool mLhbmBrightnessAdj = false;
 
+    // Indicating if brightness updates are ignored
+    bool mIgnoreBrightnessUpdateRequests = false;
+
     std::function<void(void)> mFrameRefresh;
     CtrlValue<HdrLayerState> mHdrLayerState;
+    CtrlValue<ColorRenderIntent> mColorRenderIntent;
 
     // these are used by sysfs path to wait drm path bl change task
     // indicationg an unchecked LHBM change in drm path
@@ -316,7 +431,7 @@ private:
 
     // these are dimming related
     BrightnessDimmingUsage mBrightnessDimmingUsage = BrightnessDimmingUsage::NORMAL;
-    bool mHbmDimming GUARDED_BY(mBrightnessMutex) = false;
+    bool mHbmDimming = false; // GUARDED_BY(mBrightnessMutex)
     int32_t mHbmDimmingTimeUs = 0;
     std::thread mDimmingThread;
     std::atomic<bool> mDimmingThreadRunning;
@@ -336,6 +451,17 @@ private:
 
     std::function<void(void)> mUpdateDcLhbm;
 
+    // state for control ACL state
+    enum class AclMode {
+        ACL_OFF = 0,
+        ACL_NORMAL,
+        ACL_ENHANCED,
+    };
+
+    std::ofstream mAclModeOfs;
+    CtrlValue<AclMode> mAclMode;
+    AclMode mAclModeDefault = AclMode::ACL_OFF;
+
     // state for control CABC state
     enum class CabcMode {
         OFF = 0,
@@ -347,9 +473,9 @@ private:
     static constexpr const char* kLocalCabcModeFileNode =
             "/sys/class/backlight/panel%d-backlight/cabc_mode";
     std::recursive_mutex mCabcModeMutex;
-    bool mOutdoorVisibility GUARDED_BY(mCabcModeMutex) = false;
+    bool mOutdoorVisibility = false; // GUARDED_BY(mCabcModeMutex)
     bool isHdrLayerOn() { return mHdrLayerState.get() == HdrLayerState::kHdrLarge; }
-    CtrlValue<CabcMode> mCabcMode GUARDED_BY(mCabcModeMutex);
+    CtrlValue<CabcMode> mCabcMode; // GUARDED_BY(mCabcModeMutex)
 };
 
 #endif // _BRIGHTNESS_CONTROLLER_H_

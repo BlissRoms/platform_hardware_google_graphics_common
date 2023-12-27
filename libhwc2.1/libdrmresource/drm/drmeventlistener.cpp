@@ -101,7 +101,7 @@ int DrmEventListener::Init() {
     return -errno;
   }
 
-  return InitWorker();
+  return 0;
 }
 
 void DrmEventListener::RegisterHotplugHandler(DrmEventHandler *handler) {
@@ -121,6 +121,25 @@ void DrmEventListener::RegisterHistogramHandler(DrmHistogramEventHandler *handle
 
 void DrmEventListener::UnRegisterHistogramHandler(DrmHistogramEventHandler *handler) {
     if (handler == histogram_handler_.get()) histogram_handler_ = NULL;
+}
+
+void DrmEventListener::RegisterHistogramChannelHandler(DrmHistogramChannelEventHandler *handler) {
+    assert(!histogram_channel_handler_);
+
+    if (handler) {
+        histogram_channel_handler_.reset(handler);
+    } else {
+        ALOGE("%s: failed to register, handler is nullptr", __func__);
+    }
+}
+
+void DrmEventListener::UnRegisterHistogramChannelHandler(DrmHistogramChannelEventHandler *handler) {
+    if (handler == histogram_channel_handler_.get()) {
+        histogram_channel_handler_ = NULL;
+    } else {
+        ALOGE("%s: failed to unregister, handler(%p), histogram_channel_handler(%p)", __func__,
+              handler, histogram_channel_handler_.get());
+    }
 }
 
 void DrmEventListener::RegisterTUIHandler(DrmTUIEventHandler *handler) {
@@ -279,6 +298,15 @@ void DrmEventListener::DRMEventHandler() {
                                                              (void *)&(histo->bins));
                 }
                 break;
+#if defined(EXYNOS_DRM_HISTOGRAM_CHANNEL_EVENT)
+            case EXYNOS_DRM_HISTOGRAM_CHANNEL_EVENT:
+                if (histogram_channel_handler_) {
+                    histogram_channel_handler_->handleHistogramChannelEvent((void *)e);
+                } else {
+                    ALOGE("%s: no valid histogram channel event handler", __func__);
+                }
+                break;
+#endif
             case DRM_EVENT_FLIP_COMPLETE:
                 vblank = (struct drm_event_vblank *)e;
                 user_data = (void *)(unsigned long)(vblank->user_data);

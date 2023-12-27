@@ -187,8 +187,9 @@ class ExynosResourceManager {
                           struct exynos_image &dst, ExynosMPPSource *mppSrc);
 
     private:
-        int32_t changeLayerFromClientToDevice(ExynosDisplay *display, ExynosLayer *layer,
-                uint32_t layer_index, exynos_image m2m_out_img, ExynosMPP *m2mMPP, ExynosMPP *otfMPP);
+        int32_t changeLayerFromClientToDevice(ExynosDisplay* display, ExynosLayer* layer,
+                                              uint32_t layer_index, const exynos_image& m2m_out_img,
+                                              ExynosMPP* m2mMPP, ExynosMPP* otfMPP);
         void dump(const restriction_classification_t, String8 &result) const;
 
         sp<DstBufMgrThread> mDstBufMgrThread;

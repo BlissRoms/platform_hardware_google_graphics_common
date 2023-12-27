@@ -293,12 +293,13 @@ class ExynosDisplayDrmInterface :
         virtual int32_t setForcePanic();
         virtual int getDisplayFd() { return mDrmDevice->fd(); };
         virtual int32_t initDrmDevice(DrmDevice *drmDevice);
-        virtual uint32_t getDrmDisplayId(uint32_t type, uint32_t index);
+        virtual int getDrmDisplayId(uint32_t type, uint32_t index);
         virtual uint32_t getMaxWindowNum() { return mMaxWindowNum; };
         virtual int32_t getReadbackBufferAttributes(int32_t* /*android_pixel_format_t*/ outFormat,
                 int32_t* /*android_dataspace_t*/ outDataspace);
         virtual int32_t getDisplayIdentificationData(uint8_t* outPort,
                 uint32_t* outDataSize, uint8_t* outData);
+        virtual bool needRefreshOnLP();
 
         /* For HWC 2.4 APIs */
         virtual int32_t getDisplayVsyncPeriod(
@@ -327,12 +328,35 @@ class ExynosDisplayDrmInterface :
 
         virtual int32_t waitVBlank();
         float getDesiredRefreshRate() { return mDesiredModeState.mode.v_refresh(); }
+        int32_t getOperationRate() {
+            if (mExynosDisplay->mOperationRateManager) {
+                    return mExynosDisplay->mOperationRateManager->getTargetOperationRate();
+            }
+            return 0;
+        }
 
         /* For Histogram */
         virtual int32_t setDisplayHistogramSetting(
                 ExynosDisplayDrmInterface::DrmModeAtomicReq &drmReq) {
             return NO_ERROR;
         }
+
+        /* For Histogram Multi Channel support */
+        int32_t setDisplayHistogramChannelSetting(
+                ExynosDisplayDrmInterface::DrmModeAtomicReq &drmReq, uint8_t channelId,
+                void *blobData, size_t blobLength);
+        int32_t clearDisplayHistogramChannelSetting(
+                ExynosDisplayDrmInterface::DrmModeAtomicReq &drmReq, uint8_t channelId);
+        enum class HistogramChannelIoctl_t {
+            /* send the histogram data request by calling histogram_channel_request_ioctl */
+            REQUEST = 0,
+
+            /* cancel the histogram data request by calling histogram_channel_cancel_ioctl */
+            CANCEL,
+        };
+        virtual int32_t sendHistogramChannelIoctl(HistogramChannelIoctl_t control,
+                                                  uint8_t channelId) const;
+
         int32_t getFrameCount() { return mFrameCounter; }
         virtual void registerHistogramInfo(const std::shared_ptr<IDLHistogram> &info) { return; }
         virtual int32_t setHistogramControl(hidl_histogram_control_t enabled) { return NO_ERROR; }
@@ -340,9 +364,8 @@ class ExynosDisplayDrmInterface :
         int32_t getActiveModeHDisplay() { return mActiveModeState.mode.h_display(); }
         int32_t getActiveModeVDisplay() { return mActiveModeState.mode.v_display(); }
         uint32_t getActiveModeId() { return mActiveModeState.mode.id(); }
-        int32_t panelHsize() { return mPanelResolutionHsize; }
-        int32_t panelVsize() { return mPanelResolutionVsize; }
-        int32_t getPanelResolution();
+        int32_t getPanelFullResolutionHSize() { return mPanelFullResolutionHSize; }
+        int32_t getPanelFullResolutionVSize() { return mPanelFullResolutionVSize; }
         uint32_t getCrtcId() { return mDrmCrtc->id(); }
         int32_t triggerClearDisplayPlanes();
 
@@ -352,6 +375,7 @@ class ExynosDisplayDrmInterface :
             HAL_MIPI_CMD_SYNC_LHBM,
             HAL_MIPI_CMD_SYNC_GHBM,
             HAL_MIPI_CMD_SYNC_BL,
+            HAL_MIPI_CMD_SYNC_OP_RATE,
         };
 
         struct ModeState {
@@ -518,8 +542,22 @@ class ExynosDisplayDrmInterface :
         DrmMode mDozeDrmMode;
         uint32_t mMaxWindowNum = 0;
         int32_t mFrameCounter = 0;
-        int32_t mPanelResolutionHsize = 0;
-        int32_t mPanelResolutionVsize = 0;
+        int32_t mPanelFullResolutionHSize = 0;
+        int32_t mPanelFullResolutionVSize = 0;
+
+        /**
+         * retrievePanelFullResolution
+         *
+         * Retrieve the panel full resolution by looking into the modes of the mDrmConnector
+         * and store the full resolution info in mPanelFullResolutionHSize (x component) and
+         * mPanelFullResolutionVSize (y component).
+         *
+         * Note: this function will be called only once in initDrmDevice()
+         */
+        void retrievePanelFullResolution();
+
+    public:
+        virtual bool readHotplugStatus();
 };
 
 #endif

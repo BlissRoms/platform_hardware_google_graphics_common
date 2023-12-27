@@ -68,7 +68,18 @@ inline int hwcCheckFenceDebug(ExynosDisplay *display, uint32_t fence_type, uint3
 }
 
 int32_t saveErrorLog(const android::String8 &errString, ExynosDisplay *display = NULL);
-int32_t saveFenceTrace(ExynosDisplay *display);
+
+#if defined(DISABLE_HWC_DEBUG)
+#define ALOGD_AND_ATRACE_NAME(debugFlag, fmt, ...)
+#else
+#define ALOGD_AND_ATRACE_NAME(debugFlag, fmt, ...)                           \
+    if (hwcCheckDebugMessages(debugFlag) || CC_UNLIKELY(ATRACE_ENABLED())) { \
+        String8 log;                                                         \
+        log.appendFormat((fmt), ##__VA_ARGS__);                              \
+        ALOGD("%s", log.string());                                           \
+        if (CC_UNLIKELY(ATRACE_ENABLED())) ATRACE_NAME(log.string());        \
+    }
+#endif
 
 #if defined(DISABLE_HWC_DEBUG)
 #define HDEBUGLOGD(...)

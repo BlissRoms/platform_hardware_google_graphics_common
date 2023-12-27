@@ -57,8 +57,6 @@ public:
     HistogramMediator(ExynosDisplay *display);
     ~HistogramMediator() {}
 
-    bool isDisplayPowerOff();
-    bool isSecureContentPresenting();
     HistogramErrorCode requestHist();
     HistogramErrorCode cancelHistRequest();
     HistogramErrorCode collectRoiLuma(std::vector<char16_t> *buf);

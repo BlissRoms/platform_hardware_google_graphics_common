@@ -232,6 +232,8 @@ void ExynosDevice::initDeviceInterface(uint32_t interfaceType)
             i++;
         }
     }
+
+    mDeviceInterface->postInit();
 }
 
 ExynosDevice::~ExynosDevice() {
@@ -882,7 +884,8 @@ bool ExynosDevice::canSkipValidate()
          * All display's validateDisplay should be skipped or all display's validateDisplay
          * should not be skipped.
          */
-        if (mDisplays[i]->mPlugState) {
+        if (mDisplays[i]->mPlugState && mDisplays[i]->mPowerModeState.has_value() &&
+            mDisplays[i]->mPowerModeState.value() != HWC2_POWER_MODE_OFF) {
             /*
              * presentDisplay is called without validateDisplay.
              * Call functions that should be called in validateDiplay
@@ -891,9 +894,11 @@ bool ExynosDevice::canSkipValidate()
             mDisplays[i]->checkLayerFps();
 
             if ((ret = mDisplays[i]->canSkipValidate()) != NO_ERROR) {
-                HDEBUGLOGD(eDebugSkipValidate, "Display[%d] can't skip validate (%d), renderingState(%d), geometryChanged(0x%" PRIx64 ")",
-                        mDisplays[i]->mDisplayId, ret,
-                        mDisplays[i]->mRenderingState, mGeometryChanged);
+                ALOGD_AND_ATRACE_NAME(eDebugSkipValidate,
+                                      "Display[%d] can't skip validate (%d), renderingState(%d), "
+                                      "geometryChanged(0x%" PRIx64 ")",
+                                      mDisplays[i]->mDisplayId, ret, mDisplays[i]->mRenderingState,
+                                      mGeometryChanged);
                 return false;
             } else {
                 HDEBUGLOGD(eDebugSkipValidate, "Display[%d] can skip validate (%d), renderingState(%d), geometryChanged(0x%" PRIx64 ")",
@@ -906,27 +911,7 @@ bool ExynosDevice::canSkipValidate()
 }
 
 bool ExynosDevice::validateFences(ExynosDisplay *display) {
-    std::scoped_lock lock(display->mDevice->mFenceMutex);
-
-    if (!validateFencePerFrame(display)) {
-        ALOGE("You should doubt fence leak!");
-        saveFenceTrace(display);
-        return false;
-    }
-
-    if (fenceWarn(display, MAX_FENCE_THRESHOLD)) {
-        printLeakFds(display);
-        saveFenceTrace(display);
-        return false;
-    }
-
-    if (exynosHWCControl.doFenceFileDump) {
-        ALOGD("Fence file dump !");
-        saveFenceTrace(display);
-        exynosHWCControl.doFenceFileDump = false;
-    }
-
-    return true;
+    return mFenceTracker.validateFences(display);
 }
 
 void ExynosDevice::compareVsyncPeriod() {
@@ -1218,6 +1203,22 @@ void ExynosDevice::onVsyncIdle(hwc2_display_t displayId) {
             reinterpret_cast<void (*)(hwc2_callback_data_t callbackData,
                                       hwc2_display_t hwcDisplay)>(callbackInfo.funcPointer);
     callbackFunc(callbackInfo.callbackData, displayId);
+}
+
+void ExynosDevice::handleHotplug() {
+    bool hpdStatus = false;
+
+    for (size_t i = 0; i < mDisplays.size(); i++) {
+        if (mDisplays[i] == nullptr) {
+            continue;
+        }
+
+        if (mDisplays[i]->checkHotplugEventUpdated(hpdStatus)) {
+            mDisplays[i]->handleHotplugEvent(hpdStatus);
+            mDisplays[i]->hotplug();
+            mDisplays[i]->invalidate();
+        }
+    }
 }
 
 void ExynosDevice::onRefreshRateChangedDebug(hwc2_display_t displayId, uint32_t vsyncPeriod) {

@@ -451,8 +451,8 @@ class ExynosMPPSource {
         ExynosMPPSource();
         ExynosMPPSource(uint32_t sourceType, void *source);
         ~ExynosMPPSource(){};
-        void setExynosImage(exynos_image src_img, exynos_image dst_img);
-        void setExynosMidImage(exynos_image mid_img);
+        void setExynosImage(const exynos_image& src_img, const exynos_image& dst_img);
+        void setExynosMidImage(const exynos_image& mid_img);
 
         uint32_t mSourceType;
         void *mSource;
@@ -474,8 +474,7 @@ class ExynosMPPSource {
             return 0;
         }
 
-        /* return 1 if it's needed */
-        uint32_t needHWResource(tdm_attr_t attr);
+        bool mNeedPreblending = false;
 };
 
 bool exynosMPPSourceComp(const ExynosMPPSource* l, const ExynosMPPSource* r);
@@ -693,6 +692,7 @@ public:
 
     virtual bool checkRotationCondition(struct exynos_image &src);
     void updateAttr();
+    void updatePreassignedDisplay(uint32_t fromDisplayBit, uint32_t toDisplayBit);
     dstMetaInfo getDstMetaInfo(android_dataspace_t dstDataspace);
     float getAssignedCapacity();
 

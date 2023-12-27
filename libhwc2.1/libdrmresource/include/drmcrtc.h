@@ -17,11 +17,13 @@
 #ifndef ANDROID_DRM_CRTC_H_
 #define ANDROID_DRM_CRTC_H_
 
-#include "drmmode.h"
-#include "drmproperty.h"
-
 #include <stdint.h>
 #include <xf86drmMode.h>
+
+#include <array>
+
+#include "drmmode.h"
+#include "drmproperty.h"
 
 namespace android {
 
@@ -65,6 +67,7 @@ class DrmCrtc {
   const DrmProperty &dqe_enabled_property() const;
   const DrmProperty &color_mode_property() const;
   const DrmProperty &expected_present_time_property() const;
+  const DrmProperty &rcd_plane_id_property() const;
 
   /* Histogram Properties */
   const DrmProperty &histogram_roi_property() const;
@@ -72,7 +75,8 @@ class DrmCrtc {
   const DrmProperty &histogram_threshold_property() const;
   const DrmProperty &histogram_position_property() const;
 
-  const DrmProperty &rcd_plane_id_property() const;
+  /* Histogram Properties:: multi channel */
+  const DrmProperty &histogram_channel_property(uint8_t channelId) const;
 
   const std::vector<DrmProperty *> &properties() const {
       return properties_;
@@ -108,6 +112,7 @@ class DrmCrtc {
   DrmProperty dqe_enabled_property_;
   DrmProperty color_mode_property_;
   DrmProperty expected_present_time_property_;
+  DrmProperty rcd_plane_id_property_;
 
   /* Histogram Properties */
   DrmProperty histogram_roi_property_;
@@ -115,10 +120,15 @@ class DrmCrtc {
   DrmProperty histogram_threshold_property_;
   DrmProperty histogram_position_property_;
 
-  DrmProperty rcd_plane_id_property_;
+  /* Histogram Properties :: multichannel support */
+  // TODO: b/295786065 - Get available channels from crtc property.
+  static const uint8_t histogram_channels_max = 4;
+  std::array<DrmProperty, histogram_channels_max> histogram_channel_property_;
 
+  /* all properties */
   std::vector<DrmProperty *> properties_;
 };
+
 }  // namespace android
 
 #endif  // ANDROID_DRM_CRTC_H_

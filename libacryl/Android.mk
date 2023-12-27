@@ -17,6 +17,7 @@ LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_CFLAGS += -DLOG_TAG=\"hwc-libacryl\"
+LOCAL_CFLAGS += -Wthread-safety
 #LOCAL_CFLAGS += -DLIBACRYL_DEBUG
 
 ifdef BOARD_LIBACRYL_DEFAULT_COMPOSITOR

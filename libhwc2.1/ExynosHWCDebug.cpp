@@ -39,37 +39,3 @@ int32_t saveErrorLog(const String8 &errString, ExynosDisplay *display) {
     fileWriter.flush();
     return ret;
 }
-
-int32_t saveFenceTrace(ExynosDisplay *display) {
-    int32_t ret = NO_ERROR;
-    auto &fileWriter = display->mFenceFileWriter;
-
-    if (!fileWriter.chooseOpenedFile()) {
-        return -1;
-    }
-
-    ExynosDevice *device = display->mDevice;
-
-    String8 saveString;
-
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    saveString.appendFormat("\n====== Fences at time:%s ======\n", getLocalTimeStr(tv).string());
-
-    if (device != NULL) {
-        for (const auto &[fd, info] : device->mFenceInfos) {
-            saveString.appendFormat("---- Fence FD : %d, Display(%d) ----\n", fd, info.displayId);
-            saveString.appendFormat("usage: %d, dupFrom: %d, pendingAllowed: %d, leaking: %d\n",
-                                    info.usage, info.dupFrom, info.pendingAllowed, info.leaking);
-
-            for (const auto &trace : info.traces) {
-                saveString.appendFormat("> dir: %d, type: %d, ip: %d, time:%s\n", trace.direction,
-                                        trace.type, trace.ip, getLocalTimeStr(trace.time).string());
-            }
-        }
-    }
-
-    fileWriter.write(saveString);
-    fileWriter.flush();
-    return ret;
-}

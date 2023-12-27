@@ -25,6 +25,7 @@
 
 #include "ExynosDisplay.h"
 #include "ExynosPrimaryDisplay.h"
+#include "HistogramController.h"
 
 extern int32_t load_png_image(const char *filepath, buffer_handle_t buffer);
 
@@ -174,7 +175,7 @@ ndk::ScopedAStatus Display::setCompensationImageHandle(const NativeHandle &nativ
 
 ndk::ScopedAStatus Display::setMinIdleRefreshRate(int fps, int *_aidl_return) {
     if (mDisplay) {
-        *_aidl_return = mDisplay->setMinIdleRefreshRate(fps);
+        *_aidl_return = mDisplay->setMinIdleRefreshRate(fps, VrrThrottleRequester::PIXEL_DISP);
         return ndk::ScopedAStatus::ok();
     }
     return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
@@ -205,7 +206,7 @@ bool Display::runMediator(const RoiRect &roi, const Weight &weight, const Histog
     histogram::HistogramMediator::HistogramConfig pendingConfig(roi, weight, pos);
 
     {
-        std::unique_lock<std::mutex> lk(mMediator.mConfigMutex);
+        std::scoped_lock lock(mMediator.mConfigMutex);
         isConfigChanged = mMediator.mConfig != pendingConfig;
 
         if (isConfigChanged &&
@@ -251,11 +252,11 @@ ndk::ScopedAStatus Display::histogramSample(const RoiRect &roi, const Weight &we
         *_aidl_return = HistogramErrorCode::BAD_HIST_DATA;
         return ndk::ScopedAStatus::ok();
     }
-    if (mMediator.isDisplayPowerOff() == true) {
+    if (mDisplay->isPowerModeOff() == true) {
         *_aidl_return = HistogramErrorCode::DISPLAY_POWEROFF; // panel is off
         return ndk::ScopedAStatus::ok();
     }
-    if (mMediator.isSecureContentPresenting() == true) {
+    if (mDisplay->isSecureContentPresenting() == true) {
         *_aidl_return = HistogramErrorCode::DRM_PLAYING; // panel is playing DRM content
         return ndk::ScopedAStatus::ok();
     }
@@ -284,7 +285,7 @@ ndk::ScopedAStatus Display::histogramSample(const RoiRect &roi, const Weight &we
     }
     RoiRect roiCaled = mMediator.calRoi(roi); // fit roi coordinates to RRS
     runMediator(roiCaled, weight, pos, histogrambuffer);
-    if (mMediator.isSecureContentPresenting() == true) {
+    if (mDisplay->isSecureContentPresenting() == true) {
         /* clear data to avoid leakage */
         std::fill(histogrambuffer->begin(), histogrambuffer->end(), 0);
         histogrambuffer->clear();
@@ -318,6 +319,50 @@ ndk::ScopedAStatus Display::setDbmState(bool enabled) {
     }
     mDisplay->setDbmState(enabled);
     return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Display::getHistogramCapability(HistogramCapability *_aidl_return) {
+    if (mDisplay && mDisplay->mHistogramController) {
+        return mDisplay->mHistogramController->getHistogramCapability(_aidl_return);
+    }
+    return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+}
+
+ndk::ScopedAStatus Display::registerHistogram(const ndk::SpAIBinder &token,
+                                              const HistogramConfig &histogramConfig,
+                                              HistogramErrorCode *_aidl_return) {
+    if (mDisplay && mDisplay->mHistogramController) {
+        return mDisplay->mHistogramController->registerHistogram(token, histogramConfig,
+                                                                 _aidl_return);
+    }
+    return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+}
+
+ndk::ScopedAStatus Display::queryHistogram(const ndk::SpAIBinder &token,
+                                           std::vector<char16_t> *histogramBuffer,
+                                           HistogramErrorCode *_aidl_return) {
+    if (mDisplay && mDisplay->mHistogramController) {
+        return mDisplay->mHistogramController->queryHistogram(token, histogramBuffer, _aidl_return);
+    }
+    return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+}
+
+ndk::ScopedAStatus Display::reconfigHistogram(const ndk::SpAIBinder &token,
+                                              const HistogramConfig &histogramConfig,
+                                              HistogramErrorCode *_aidl_return) {
+    if (mDisplay && mDisplay->mHistogramController) {
+        return mDisplay->mHistogramController->reconfigHistogram(token, histogramConfig,
+                                                                 _aidl_return);
+    }
+    return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
+}
+
+ndk::ScopedAStatus Display::unregisterHistogram(const ndk::SpAIBinder &token,
+                                                HistogramErrorCode *_aidl_return) {
+    if (mDisplay && mDisplay->mHistogramController) {
+        return mDisplay->mHistogramController->unregisterHistogram(token, _aidl_return);
+    }
+    return ndk::ScopedAStatus::fromExceptionCode(EX_UNSUPPORTED_OPERATION);
 }
 
 } // namespace display

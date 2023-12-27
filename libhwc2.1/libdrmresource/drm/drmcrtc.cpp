@@ -87,6 +87,8 @@ int DrmCrtc::Init() {
     ALOGI("Failed to get color mode property");
   if (drm_->GetCrtcProperty(*this, "expected_present_time", &expected_present_time_property_))
       ALOGI("Failed to get expected_present_time property");
+  if (drm_->GetCrtcProperty(*this, "rcd_plane_id", &rcd_plane_id_property_))
+      ALOGI("Failed to get &rcd_plane_id property");
 
   /* Histogram Properties */
   if (drm_->GetCrtcProperty(*this, "histogram_roi", &histogram_roi_property_))
@@ -97,8 +99,6 @@ int DrmCrtc::Init() {
       ALOGI("Failed to get &histogram_threshold property");
   if (drm_->GetCrtcProperty(*this, "histogram_pos", &histogram_position_property_))
       ALOGI("Failed to get &histogram_position property");
-  if (drm_->GetCrtcProperty(*this, "rcd_plane_id", &rcd_plane_id_property_))
-      ALOGI("Failed to get &rcd_plane_id property");
 
   properties_.push_back(&active_property_);
   properties_.push_back(&mode_property_);
@@ -121,6 +121,7 @@ int DrmCrtc::Init() {
   properties_.push_back(&dqe_enabled_property_);
   properties_.push_back(&color_mode_property_);
   properties_.push_back(&expected_present_time_property_);
+  properties_.push_back(&rcd_plane_id_property_);
 
   /* Histogram Properties */
   properties_.push_back(&histogram_roi_property_);
@@ -128,8 +129,20 @@ int DrmCrtc::Init() {
   properties_.push_back(&histogram_threshold_property_);
   properties_.push_back(&histogram_position_property_);
 
-  properties_.push_back(&rcd_plane_id_property_);
+  /* Histogram Properties :: multichannel */
+  // TODO: b/295786065 - Get available channels from crtc property.
+  for (int i = 0; i < histogram_channels_max; i++) {
+      char pname[64];
 
+      sprintf(pname, "histogram_%d", i);
+      if (!drm_->GetCrtcProperty(*this, pname, &histogram_channel_property_[i])) {
+        ALOGD("histogram_channel #%d property found", i);
+        properties_.push_back(&histogram_channel_property_[i]);
+      } else {
+        ALOGD("histogram_channel #%d property not found, break", i);
+        break;
+      }
+  }
   return 0;
 }
 
@@ -268,6 +281,15 @@ const DrmProperty &DrmCrtc::histogram_position_property() const {
 
 const DrmProperty &DrmCrtc::rcd_plane_id_property() const {
     return rcd_plane_id_property_;
+}
+
+/* Histogram Properties */
+const DrmProperty &DrmCrtc::histogram_channel_property(uint8_t channelId) const {
+    if (histogram_channels_max <= channelId) {
+        ALOGE("Invalid histogram channel number %u\n", channelId);
+        return histogram_channel_property_[0];
+    }
+    return histogram_channel_property_[channelId];
 }
 
 }  // namespace android
